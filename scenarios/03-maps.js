@@ -47,6 +47,12 @@ function configuration() {
     );
   }
 
+  if (!__ENV.MAPS_API_PATH) {
+    fail(
+      'La variable MAPS_API_PATH es obligatoria'
+    );
+  }
+
   const authenticated = envBoolean(
     'MAP_AUTHENTICATED',
     false
@@ -60,6 +66,8 @@ function configuration() {
     geoserverBase: String(
       __ENV.GEOSERVER_BASE
     ).replace(/\/+$/, ''),
+
+    mapsPath: String(__ENV.MAPS_API_PATH),
 
     viewerBase: authenticated
       ? String(__ENV.ADMIN_BASE || '/admin')
@@ -927,7 +935,7 @@ export default function () {
     : null;
 
   const listResponse = http.get(
-    `${config.baseUrl}/api/v2/sigic-maps/` +
+    `${config.baseUrl}${config.mapsPath}` +
       `?page=1&page_size=${config.pageSize}`,
     requestOptions(
       auth,
@@ -1006,7 +1014,7 @@ export default function () {
     );
 
     const detailResponse = http.get(
-      `${config.baseUrl}/api/v2/sigic-maps/` +
+      `${config.baseUrl}${config.mapsPath}` +
         `${encodeURIComponent(candidateMap.id)}/`,
       requestOptions(
         auth,

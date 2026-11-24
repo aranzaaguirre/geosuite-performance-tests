@@ -29,8 +29,15 @@ function config() {
     fail('La variable BASE_URL es obligatoria');
   }
 
+  if (!__ENV.RESOURCES_API_PATH) {
+    fail(
+      'La variable RESOURCES_API_PATH es obligatoria'
+    );
+  }
+
   return {
     baseUrl: __ENV.BASE_URL,
+    resourcesPath: __ENV.RESOURCES_API_PATH,
 
     viewerBase:
       String(
@@ -457,7 +464,7 @@ export function setup() {
 
   const discoveryResponse = http.get(
     `${configuration.baseUrl}` +
-      '/api/v2/sigic-resources/' +
+      `${configuration.resourcesPath}` +
       `?page=1&page_size=${configuration.pageSize}`,
     requestOptions(auth, {
       scenario: 'catalog',
@@ -596,7 +603,7 @@ export default function (data) {
 
     const filterResponse = http.get(
       `${configuration.baseUrl}` +
-        '/api/v2/sigic-resources/' +
+        `${configuration.resourcesPath}` +
         `?${profileFilter(profile)}` +
         '&page=1&page_size=10',
       requestOptions(auth, {
@@ -630,7 +637,7 @@ export default function (data) {
 
     const searchResponse = http.get(
       `${configuration.baseUrl}` +
-        '/api/v2/sigic-resources/' +
+        `${configuration.resourcesPath}` +
         '?search_fields=title' +
         '&search_fields=abstract' +
         `&search=${term}`,

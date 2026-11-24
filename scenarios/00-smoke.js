@@ -8,7 +8,7 @@ import { check, fail } from 'k6';
  * contenido. Es de solo lectura y permite detectar fallos básicos de DNS,
  * Nginx o API antes de ejecutar escenarios más costosos.
  *
- * Requiere: BASE_URL.
+ * Requiere: BASE_URL y RESOURCES_API_PATH.
  */
 
 export const options = {
@@ -23,10 +23,18 @@ export default function () {
     fail('La variable BASE_URL es obligatoria');
   }
 
-  const response = http.get(`${baseUrl}/api/v2/sigic-resources/`, {
+  const resourcesPath = __ENV.RESOURCES_API_PATH;
+
+  if (!resourcesPath) {
+    fail(
+      'La variable RESOURCES_API_PATH es obligatoria'
+    );
+  }
+
+  const response = http.get(`${baseUrl}${resourcesPath}`, {
     tags: {
       scenario: 'smoke',
-      endpoint: 'sigic-resources',
+      endpoint: 'resources',
     },
   });
 
