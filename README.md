@@ -1,116 +1,164 @@
 # GeoSuite Performance Tests
 
-Repositorio de pruebas de rendimiento de GeoSuite basado en Grafana k6.
-Contiene escenarios que reproducen los flujos principales de la plataforma.
-El perfil predeterminado usa un usuario virtual y una iteración para validar
-las solicitudes antes de aplicar carga, estrés o picos.
+Suite reproducible de pruebas HTTP y de servicios geoespaciales para GeoSuite,
+implementada con Grafana k6. Incluye autenticación OIDC, catálogo, mapas,
+GeoServer y carga de archivos. Está diseñada para ejecutar los mismos flujos en
+local, Linux, Nimbus e IDCE cambiando únicamente la configuración privada de
+cada ambiente.
 
-## Documentación
+Los scripts miden solicitudes HTTP/API; no abren un navegador ni miden el
+renderizado de Nuxt, DOM, JavaScript del cliente o Web Vitals. Tampoco sustituyen
+el monitoreo interno de contenedores, base de datos, CPU, memoria, disco y red.
 
-- [Detalle de escenarios](docs/SCENARIOS.md)
-- [Guía de reproducción por ambiente](docs/REPRODUCIBILITY.md)
-- [Política de seguridad](SECURITY.md)
-- [Guía de contribución](CONTRIBUTING.md)
+## Contenido
 
-## Inicio rápido
+- [Escenarios incluidos](#escenarios-incluidos)
+- [Requisitos](#requisitos)
+- [Instalación desde cero](#instalación-desde-cero)
+- [Configuración de un ambiente](#configuración-de-un-ambiente)
+- [Preparación de usuarios](#preparación-de-usuarios)
+- [Validación funcional](#validación-funcional)
+- [Perfiles de carga](#perfiles-de-carga)
+- [Resultados y evidencia](#resultados-y-evidencia)
+- [Ejecución en otra instancia](#ejecución-en-otra-instancia)
+- [Solución de problemas](#solución-de-problemas)
 
-```bash
-cp config/local.env.example config/local.env
-chmod 600 config/local.env
-nano config/local.env
-```
+## Escenarios incluidos
 
-Después de instalar k6 y preparar las credenciales:
+| Archivo | Flujo | Autenticación | Efecto |
+| --- | --- | --- | --- |
+| `00-smoke.js` | Disponibilidad de Nginx y API de catálogo | No | Solo lectura |
+| `01-auth.js` | NextAuth, Keycloak OIDC y perfil Django/GeoNode | Sí | Crea una sesión |
+| `02-catalog.js` | Listado, clasificación, filtros, búsqueda y detalle | Configurable | Solo lectura |
+| `03-maps.js` | Visor, mapas, capas, WMTS/MVT, WMS y WFS | Configurable | Solo lectura |
+| `04-upload.js` | Cuota, upload, análisis, preview e importación | Sí | Depende del modo |
 
-```bash
-export K6_BIN="$PWD/.tools/k6-v2.3.0-linux-amd64/k6"
+Las rutas `sigic-resources` y `sigic-maps` que aparecen en el código son
+identificadores técnicos de la API instalada. Se conservan para mantener
+compatibilidad entre las instancias de GeoSuite.
 
-set -a
-source config/local.env
-set +a
+El detalle de las solicitudes y sus precondiciones está en
+[`docs/SCENARIOS.md`](docs/SCENARIOS.md).
 
-"$K6_BIN" run scenarios/00-smoke.js
-```
-
-No ejecutes perfiles intensivos hasta que `functional` y `baseline` sean
-correctos y el ambiente esté autorizado.
-
-## Alcance
-
-| Escenario | Flujo validado | Efecto sobre el ambiente |
-| --- | --- | --- |
-| `00-smoke.js` | Disponibilidad del catálogo API | Solo lectura |
-| `01-auth.js` | NextAuth, Keycloak OIDC y perfil GeoNode | Crea una sesión |
-| `02-catalog.js` | Descubrimiento, filtros, búsquedas y detalles | Solo lectura |
-| `03-maps.js` | Visor, mapas, capas, WMTS/MVT, WMS y WFS | Solo lectura |
-| `04-upload.js` | Carga, análisis, importación y publicación | Depende de `UPLOAD_MODE` |
-
-Los escenarios ejercitan Nginx, Nuxt, Keycloak, Django/GeoNode, Celery,
-GeoServer y PostgreSQL/PostGIS según el flujo. No sustituyen las métricas
-internas de CPU, memoria, disco, base de datos o contenedores.
-
-## Estructura
+## Estructura del repositorio
 
 ```text
-├── config/       Variables por ambiente
-├── data/         Datos sintéticos versionables
-├── docs/         Diseño de escenarios y reproducción
-├── lib/          Funciones compartidas, incluida autenticación
-├── results/      Salidas generadas; no se versionan
-├── scenarios/    Escenarios funcionales k6
-└── scripts/      Aprovisionamiento e inicialización de usuarios
+config/      Plantilla de ambiente y ejemplo del pool de usuarios
+data/        Archivos sintéticos, pequeños y seguros para pruebas
+docs/        Diseño de escenarios y reglas de reproducción
+lib/         Autenticación, asignación de sesiones y perfiles de carga
+results/     Salidas locales de k6; no se versionan
+scenarios/   Flujos funcionales de k6
+scripts/     Aprovisionamiento e inicialización de usuarios
 ```
 
-El binario descargado en `.tools/` es local y está excluido de Git. En otra
-máquina debe instalarse o copiarse un binario compatible con su arquitectura.
+No se versionan el binario de k6, archivos `*.env`, pools de usuarios ni
+resultados. Cada operador debe generarlos en su propia máquina.
 
-## Reproducir las pruebas en cualquier instancia
+## Requisitos
 
-Esta sección permite preparar Linux, Nimbus, IDCE u otra instalación de GeoSuite
-sin modificar los escenarios. Cada instancia utiliza su propio archivo de
-configuración, pool de usuarios y directorio de resultados.
+### Generador de carga
 
-### 1. Clonar una versión identificable
+- Linux x86_64 o ARM64. WSL funciona para la validación local.
+- Grafana k6; esta suite fue validada con `v2.3.0`.
+- Bash, `curl`, Python 3 y OpenSSL.
+- Git para identificar la versión ejecutada.
+- Resolución DNS hacia el dominio de la instancia.
+- Certificado TLS válido en servidores HTTPS.
+
+Docker Desktop no es necesario: k6 se ejecuta como CLI nativo. Para pruebas de
+carga formales conviene usar un equipo Linux separado del servidor evaluado,
+de modo que el generador no consuma sus recursos.
+
+### Plataforma objetivo
+
+- GeoSuite en ejecución y accesible por su entrada Nginx.
+- Realm, cliente OIDC y rutas de autenticación operativos.
+- Al menos un recurso visible para catálogo.
+- Para mapas, un mapa visible con una capa realmente publicada en GeoServer.
+- Para upload, cuota disponible y permisos de carga.
+- Cuentas exclusivas de prueba; una por VU autenticado simultáneo.
+
+## Instalación desde cero
+
+### 1. Clonar el repositorio
 
 ```bash
-git clone URL_DEL_REPOSITORIO geosuite-performance-tests
+git clone https://github.com/aranzaaguirre/geosuite-performance-tests.git
 cd geosuite-performance-tests
+```
+
+Registra el commit que ejecutarás:
+
+```bash
 git rev-parse HEAD
 ```
 
-Registra el commit mostrado junto con los resultados para poder repetir
-exactamente la misma versión de los scripts.
+Esto permite relacionar cada resultado con una versión exacta de los scripts.
 
-### 2. Instalar k6
+### 2. Preparar k6
 
-Instala k6 para la arquitectura del generador de carga o coloca un binario
-compatible dentro de `.tools/`. La versión validada por este repositorio es
-`v2.3.0`.
+Instala k6 para la arquitectura del generador siguiendo el mecanismo aprobado
+para ese servidor. Comprueba primero si ya está disponible:
 
 ```bash
 uname -m
 k6 version
 ```
 
-Si el binario está dentro del repositorio:
-
-```bash
-export K6_BIN="$PWD/.tools/k6-v2.3.0-linux-amd64/k6"
-"$K6_BIN" version
-```
-
-Si k6 está instalado en el sistema:
+Si está instalado globalmente:
 
 ```bash
 export K6_BIN="$(command -v k6)"
 ```
 
-El generador debe ser, preferentemente, una máquina Linux separada del
-servidor GeoSuite para que k6 no compita por CPU o RAM con el sistema evaluado.
+También se puede descargar el binario validado dentro de `.tools/`, directorio
+ignorado por Git. En Linux x86_64 utiliza `amd64`; en ARM64 cambia el valor de
+`K6_ARCH` a `arm64`:
 
-### 3. Crear la configuración privada
+```bash
+K6_VERSION=v2.3.0
+K6_ARCH=amd64
 
-Sustituye `AMBIENTE` por `linux`, `nimbus`, `idce` u otro identificador:
+curl -fL \
+  -o "/tmp/k6-${K6_VERSION}-linux-${K6_ARCH}.tar.gz" \
+  "https://github.com/grafana/k6/releases/download/${K6_VERSION}/k6-${K6_VERSION}-linux-${K6_ARCH}.tar.gz"
+
+curl -fL \
+  -o "/tmp/k6-${K6_VERSION}-checksums.txt" \
+  "https://github.com/grafana/k6/releases/download/${K6_VERSION}/k6-${K6_VERSION}-checksums.txt"
+```
+
+Verifica la descarga antes de extraerla:
+
+```bash
+cd /tmp
+grep "k6-${K6_VERSION}-linux-${K6_ARCH}.tar.gz" \
+  "k6-${K6_VERSION}-checksums.txt" \
+  | sha256sum -c -
+cd -
+```
+
+El resultado debe terminar en `OK`. Después:
+
+```bash
+mkdir -p .tools
+tar -xzf "/tmp/k6-${K6_VERSION}-linux-${K6_ARCH}.tar.gz" \
+  -C .tools
+
+export K6_BIN="$PWD/.tools/k6-v2.3.0-linux-amd64/k6"
+"$K6_BIN" version
+```
+
+Si elegiste `arm64`, ajusta también la ruta de `K6_BIN`. No copies un binario
+`amd64` a un servidor `arm64`. Si `k6 version` no funciona, detente antes de
+configurar o ejecutar pruebas.
+
+## Configuración de un ambiente
+
+### 1. Crear el archivo privado
+
+Usa un nombre que identifique el destino (`local`, `linux`, `nimbus` o `idce`):
 
 ```bash
 cp config/local.env.example config/AMBIENTE.env
@@ -118,30 +166,70 @@ chmod 600 config/AMBIENTE.env
 nano config/AMBIENTE.env
 ```
 
-Configura como mínimo:
+Nunca edites `local.env.example` con secretos. El archivo nuevo está excluido
+por `.gitignore`.
+
+### 2. Completar las variables
+
+Las variables principales son:
+
+| Grupo | Variables | Qué se debe verificar |
+| --- | --- | --- |
+| Destino | `TEST_ENV_NAME`, `BASE_URL` | Nombre corto y origen público sin `/` final |
+| OIDC | `OIDC_ISSUER`, `KEYCLOAK_CLIENT_ID`, `KEYCLOAK_REALM` | Realm y cliente del módulo administrativo |
+| Rutas | `ADMIN_BASE`, `APP_BASE`, `API_BASE`, `AUTH_*` | Rutas realmente expuestas por Nginx |
+| Usuarios | `AUTH_USERNAME`, `AUTH_PASSWORD`, `AUTH_USERS_FILE` | Cuenta funcional o pool privado |
+| Catálogo | `CATALOG_*`, `DISCOVERY_PAGE_SIZE` | Acceso y perfiles que se descubrirán |
+| Mapas | `MAP_*`, `GEOSERVER_BASE` | Mapa, capas y servicios OGC |
+| Upload | `UPLOAD_*` | Archivo, polling, limpieza y publicación |
+| Carga | `TEST_PROFILE`, `PROFILE_*` | Concurrencia, duración y umbrales |
+
+Configuración mínima orientativa para un servidor:
 
 ```env
-TEST_ENV_NAME=AMBIENTE
+TEST_ENV_NAME=nimbus
 BASE_URL=https://dominio-real-de-geosuite
-OIDC_ISSUER=https://dominio-real-de-geosuite/iam/realms/REALM
-KEYCLOAK_CLIENT_ID=CLIENTE_OIDC_REAL
-AUTH_USERS_FILE=../config/users.AMBIENTE.json
+
+KEYCLOAK_REALM=sigic
+KEYCLOAK_CLIENT_ID=sigic-admin
+OIDC_ISSUER=https://dominio-real-de-geosuite/iam/realms/sigic
+
+AUTH_USERS_FILE=../config/users.nimbus.json
+TEST_PROFILE=functional
 ```
 
-También deben revisarse las rutas `AUTH_*`, los prefijos, la entrada de
-GeoServer y las opciones de catálogo, mapas y carga. No copies valores locales
-sin verificarlos contra la configuración real de la instancia.
+En local, `BASE_URL` puede usar HTTP si así está desplegada la instalación. En
+Nimbus e IDCE debe usarse su URL HTTPS real. No uses
+`--insecure-skip-tls-verify` para ocultar problemas de certificados.
 
-En servidores reales utiliza HTTPS y certificados válidos. No uses
-`--insecure-skip-tls-verify` como solución a un certificado incorrecto.
+`config/local.env.example` contiene todas las opciones y valores seguros por
+defecto. No ejecutes `source .env` sobre el archivo de Docker Compose: no es el
+archivo de configuración de estas pruebas y puede contener sintaxis distinta.
 
-### 4. Verificar conectividad antes de k6
+### 3. Cargar la configuración en la terminal
+
+Cada terminal nueva necesita cargar el ambiente y localizar k6:
 
 ```bash
+cd geosuite-performance-tests
+
+export K6_BIN="$(command -v k6)"
+
 set -a
 source config/AMBIENTE.env
 set +a
 ```
+
+Si usas el binario de `.tools/`, sustituye únicamente la línea de `K6_BIN`.
+
+Comprueba valores no sensibles:
+
+```bash
+printf 'Ambiente: %s\nBase URL: %s\nOIDC: %s\n' \
+  "$TEST_ENV_NAME" "$BASE_URL" "$OIDC_ISSUER"
+```
+
+### 4. Verificar conectividad
 
 ```bash
 curl -fsSI "$BASE_URL"
@@ -161,18 +249,63 @@ curl -fsS \
   | head -60
 ```
 
-Detente si DNS, TLS, API u OIDC no responden correctamente.
+No continúes si falla DNS, TLS, la API o el documento de descubrimiento OIDC.
 
-### 5. Preparar un pool independiente de usuarios
+## Preparación de usuarios
 
-Cada VU autenticado necesita una cuenta diferente. Crea el archivo privado:
+### Cuántas cuentas se necesitan
+
+Cada VU autenticado recibe una cuenta distinta. El código detiene la ejecución
+si el pool es menor que la concurrencia solicitada.
+
+| Perfil | Mínimo de cuentas |
+| --- | ---: |
+| `functional` | 1 |
+| `baseline` | `PROFILE_VUS` |
+| `load` | `PROFILE_VUS` |
+| `spike` | `PROFILE_VUS` |
+| `recovery` | `PROFILE_VUS` |
+| `stress` | `3 × PROFILE_VUS` |
+
+Comienza con pocas cuentas en local (por ejemplo, 3 para baseline). Crea el
+máximo requerido solo en un ambiente autorizado.
+
+### Opción A: aprovisionamiento automático
+
+El aprovisionador crea o actualiza cuentas en Keycloak, genera
+`config/users.AMBIENTE.json`, aplica permisos `600` y actualiza
+`AUTH_USERS_FILE` en el archivo del ambiente:
 
 ```bash
-nano config/users.AMBIENTE.json
-chmod 600 config/users.AMBIENTE.json
+./scripts/provision-users.sh
 ```
 
-Formato:
+El asistente solicita la ruta de `config/AMBIENTE.env`, la cantidad de cuentas
+y la contraseña administrativa de Keycloak de forma oculta.
+
+Para que funcione, configura en el archivo del ambiente:
+
+```env
+KEYCLOAK_ADMIN_MODE=local
+KEYCLOAK_ADMIN_URL=https://dominio-real-de-geosuite/iam
+KEYCLOAK_REALM=sigic
+KC_ADMIN_USERNAME=USUARIO_ADMINISTRATIVO
+KC_ADMIN_REALM=master
+```
+
+- `local`: ejecuta `kcadm.sh` desde el generador; es el modo normal contra un
+  servidor remoto.
+- `docker`: ejecuta `kcadm.sh` dentro del servicio de Keycloak y solo funciona
+  cuando Docker Compose de la plataforma es accesible desde esa ubicación.
+
+La contraseña administrativa no se guarda en el `.env`. Las claves `.pem` de
+SSH sirven para conectarse al servidor, no sustituyen la credencial
+administrativa de Keycloak.
+
+### Opción B: pool proporcionado por el administrador
+
+Si no tienes autorización para crear cuentas, solicita un pool exclusivo y
+guárdalo siguiendo `config/users.example.json`:
 
 ```json
 [
@@ -183,318 +316,247 @@ Formato:
 ]
 ```
 
-Si existe autorización administrativa, el pool puede generarse con:
-
 ```bash
-./scripts/provision-users.sh
+chmod 600 config/users.AMBIENTE.json
 ```
 
-El aprovisionador solicita el archivo del ambiente, la cantidad de cuentas y
-la credencial administrativa. No lo uses contra una instancia sin permiso.
+Apunta `AUTH_USERS_FILE` a ese archivo. La ruta se resuelve desde los módulos
+de k6, por eso el formato habitual es:
 
-Cantidad mínima:
+```env
+AUTH_USERS_FILE=../config/users.AMBIENTE.json
+```
 
-| Ejecución | Cuentas necesarias |
-| --- | ---: |
-| `functional` | 1 |
-| `baseline` | `PROFILE_VUS` |
-| `load`, `spike`, `recovery` | máximo objetivo |
-| `stress` | `3 × PROFILE_VUS` |
+### Inicializar perfiles Django/GeoNode
 
-### 6. Inicializar perfiles de GeoSuite
-
-Las cuentas pueden existir en Keycloak sin tener todavía perfil en
-Django/GeoNode. Ejecuta una autenticación secuencial por cuenta:
+Una cuenta puede existir en Keycloak y todavía no tener perfil sincronizado en
+Django/GeoNode. Después de crear el pool, ejecuta una vez:
 
 ```bash
 "$K6_BIN" run scripts/initialize-users.js
 ```
 
-Debe finalizar con `auth_session_valid=100%`, checks al 100% y cero errores
-HTTP. Si aparecen sesiones vacías o acciones requeridas de Keycloak, no
-continúes con carga.
+El inicializador usa un solo VU y hace un login secuencial por cuenta; no es una
+prueba de carga. Debe terminar con `auth_session_valid=100%`, checks al 100 % y
+sin errores HTTP.
 
-### 7. Ejecutar la puerta funcional
+## Validación funcional
 
-Ejecuta en orden y corrige cualquier fallo antes del siguiente paso:
+La puerta funcional comprueba una iteración antes de introducir concurrencia.
+Ejecuta los escenarios en este orden:
 
 ```bash
 TEST_PROFILE=functional \
   "$K6_BIN" run scenarios/00-smoke.js
+```
 
+```bash
 TEST_PROFILE=functional \
   "$K6_BIN" run scenarios/01-auth.js
+```
 
-TEST_PROFILE=functional CATALOG_AUTHENTICATED=true \
+```bash
+TEST_PROFILE=functional \
+CATALOG_AUTHENTICATED=true \
   "$K6_BIN" run scenarios/02-catalog.js
+```
 
-TEST_PROFILE=functional MAP_AUTHENTICATED=true \
+```bash
+TEST_PROFILE=functional \
+MAP_AUTHENTICATED=true \
   "$K6_BIN" run scenarios/03-maps.js
+```
 
-TEST_PROFILE=functional UPLOAD_MODE=analyze UPLOAD_CLEANUP_JOB=true \
+```bash
+TEST_PROFILE=functional \
+UPLOAD_MODE=analyze \
+UPLOAD_CLEANUP_JOB=true \
   "$K6_BIN" run scenarios/04-upload.js
 ```
 
-Para mapas debe existir un mapa visible con una capa realmente publicada en
-GeoServer. Para carga debe existir cuota y el archivo sintético configurado.
+Condiciones para aprobar:
 
-### 8. Obtener una línea base
+- cero checks funcionales fallidos;
+- `auth_session_valid=100%` en los flujos autenticados;
+- sin errores inesperados de HTTP, OIDC u OGC;
+- catálogo con al menos un recurso compatible;
+- mapa con una capa anunciada y utilizable por GeoServer;
+- upload analizado y job temporal eliminado.
 
-Después de aprobar la puerta funcional:
+`CATALOG_AUTHENTICATED=false` y `MAP_AUTHENTICATED=false` permiten validar la
+entrada pública `/app`; no reemplazan la comprobación autenticada de `/admin`.
 
-```bash
-mkdir -p results/AMBIENTE/baseline-catalog-001
-```
+### Modo completo de upload
 
-```bash
-TEST_PROFILE=baseline \
-PROFILE_VUS=3 \
-PROFILE_DURATION=2m \
-"$K6_BIN" run \
-  --summary-export=results/AMBIENTE/baseline-catalog-001/summary.json \
-  scenarios/02-catalog.js
-```
-
-Los valores son conservadores y deben ajustarse únicamente con autorización.
-No ejecutes `load`, `stress`, `spike` o `recovery` en producción ni antes de
-contar con monitoreo y condiciones de detención.
-
-### 9. Conservar evidencia reproducible
-
-Por cada ejecución registra:
-
-- commit de este repositorio;
-- versión y arquitectura de k6;
-- nombre del ambiente y configuración no sensible;
-- inicio, fin y zona horaria;
-- escenario, perfil, VUs y duración;
-- `summary.json`;
-- CPU, RAM, disco, red, reinicios y logs del servidor;
-- CPU y RAM del generador de carga;
-- hallazgos funcionales observados.
-
-Los archivos de `results/` están excluidos de Git. Guárdalos en el repositorio
-de evidencias autorizado para el proyecto.
-
-### 10. Orden de promoción
-
-```text
-functional → baseline → load → stress → spike → recovery
-```
-
-Y entre instalaciones:
-
-```text
-Linux controlado → Nimbus → IDCE
-```
-
-No avances si existen sesiones inválidas, checks funcionales fallidos, capas
-inexistentes, errores crecientes, saturación del generador o recuperación
-incompleta. La guía ampliada se encuentra en
-[`docs/REPRODUCIBILITY.md`](docs/REPRODUCIBILITY.md).
-
-## Configuración por ambiente
-
-`config/local.env.example` es la plantilla versionable. Para cada ambiente se
-crea un archivo privado equivalente, por ejemplo `local.env`, `nimbus.env` o
-`idce.env`. Los archivos `*.env` reales están excluidos de Git y deben tener
-permisos `600`.
-
-| Grupo | Variables | Finalidad |
-| --- | --- | --- |
-| Destino | `BASE_URL` | Origen público de GeoSuite, sin `/` final |
-| Prefijos | `ADMIN_BASE`, `APP_BASE`, `API_BASE` | Entradas de Nginx y API |
-| OIDC | `OIDC_ISSUER`, `KEYCLOAK_CLIENT_ID` | Emisor y cliente administrativo |
-| Sesión | `AUTH_*` | Rutas NextAuth, perfil protegido y credenciales privadas |
-| Catálogo | `CATALOG_*`, `DISCOVERY_PAGE_SIZE` | Acceso, perfiles y descubrimiento |
-| Mapas | `MAP_*`, `GEOSERVER_BASE` | Selección, capas y solicitudes OGC |
-| Carga | `UPLOAD_*` | Archivo, polling, limpieza y publicación |
-
-En local se usa la URL definida por la instalación. Nimbus e IDCE deben usar
-su URL HTTPS real. Las credenciales administrativas de GeoServer no pertenecen
-a estos archivos: son secretos internos de la infraestructura.
-
-> **Compatibilidad de API:** algunas rutas del backend conservan los nombres
-> técnicos heredados `sigic-resources` y `sigic-maps`. Son contratos HTTP de la
-> plataforma y no representan la identidad pública de este repositorio. No se
-> renombran porque hacerlo rompería las solicitudes contra las instalaciones
-> existentes.
-
-Para cargar una configuración en Bash:
+El modo seguro para concurrencia es `analyze`. `UPLOAD_MODE=full` importa el
+dataset en GeoNode/PostGIS, comprueba WMS/WFS y puede finalizar metadatos; por
+lo tanto, crea datos persistentes. El código solo permite combinarlo con el
+perfil `functional`:
 
 ```bash
-set -a
-source config/local.env
-set +a
+TEST_PROFILE=functional \
+UPLOAD_MODE=full \
+UPLOAD_VERIFY_GEOSERVER=true \
+UPLOAD_FINALIZE=true \
+  "$K6_BIN" run scenarios/04-upload.js
 ```
 
-No debe ejecutarse `source .env` sobre el archivo principal de Docker Compose;
-su sintaxis y finalidad son diferentes.
+Úsalo una vez, con autorización, y registra o retira el dataset creado.
 
-## Usuarios de prueba
+## Perfiles de carga
 
-El aprovisionador crea o actualiza un conjunto de cuentas exclusivas en
-Keycloak y genera el archivo privado que k6 asigna por posición a cada VU. No
-se ejecuta automáticamente con una prueba, porque crear cuentas es una tarea
-administrativa separada.
-
-Desde la raíz del repositorio:
-
-```bash
-./scripts/provision-users.sh
-```
-
-El asistente solicita la ruta del mismo archivo `.env` utilizado para ejecutar
-las pruebas y la cantidad de usuarios. La ubicación, realm, modo de acceso y
-cuenta administrativa de Keycloak se leen de ese archivo; no se deducen del
-nombre del ambiente. La contraseña administrativa se solicita de forma oculta
-si no fue proporcionada temporalmente en `KC_ADMIN_PASSWORD`.
-
-Cada archivo de ambiente declara `KEYCLOAK_ADMIN_MODE`,
-`KEYCLOAK_ADMIN_URL`, `KEYCLOAK_REALM`, `KC_ADMIN_USERNAME` y
-`KC_ADMIN_REALM`. Desde un generador Linux contra Nimbus o IDCE normalmente se
-usa `KEYCLOAK_ADMIN_MODE=local` y la URL HTTPS real. El secreto
-`KC_ADMIN_PASSWORD` se proporciona temporalmente o mediante la captura oculta;
-nunca debe guardarse en el archivo ni registrarse en Git.
-
-Para `local` con tres usuarios, el resultado es
-`config/users.local.json`; además, el script configura en `config/local.env`:
-
-```text
-AUTH_USERS_FILE=../config/users.local.json
-```
-
-El JSON tiene permisos `600`, está excluido de Git y no debe compartirse. El
-script es idempotente respecto al nombre: si una cuenta ya existe, la conserva
-y renueva su contraseña. También completa nombre y apellido sintéticos porque
-el perfil estándar del realm los exige antes de finalizar el login. La
-plantilla `config/users.example.json` documenta el formato sin contener
-credenciales utilizables.
-
-Después del aprovisionamiento, las cuentas existen en Keycloak pero su perfil
-de Django/GeoNode puede no existir todavía. El inicializador ejecuta una sola
-autenticación OIDC por cuenta para provocar la sincronización normal de GeoSuite:
-
-```bash
-set -a
-source config/local.env
-set +a
-
-"$K6_BIN" run scripts/initialize-users.js
-```
-
-Este procedimiento usa un solo VU y recorre secuencialmente todas las entradas
-del pool. Ejecuta exactamente un login por cuenta, sin introducir concurrencia.
-No es una prueba de carga y no debe utilizarse para medir capacidad.
-
-Debe existir al menos una cuenta por VU simultáneo. Para `baseline`, `load`,
-`spike` y `recovery`, el mínimo es el máximo objetivo configurado. Para
-`stress`, el máximo actual es `3 x PROFILE_VUS`; por ejemplo, con
-`PROFILE_VUS=10` deben aprovisionarse 30 cuentas. k6 detiene la ejecución si
-el pool es menor, evitando sesiones concurrentes con el mismo usuario.
-
-## Ejecución funcional
-
-Desde la raíz del repositorio:
-
-```bash
-export K6_BIN="$PWD/.tools/k6-v2.3.0-linux-amd64/k6"
-```
-
-Después se ejecuta el escenario deseado:
-
-```bash
-"$K6_BIN" run scenarios/00-smoke.js
-"$K6_BIN" run scenarios/01-auth.js
-"$K6_BIN" run scenarios/02-catalog.js
-"$K6_BIN" run scenarios/03-maps.js
-"$K6_BIN" run scenarios/04-upload.js
-```
-
-`CATALOG_AUTHENTICATED` y `MAP_AUTHENTICATED` seleccionan las entradas
-`/admin` o `/app`. La modalidad autenticada es la validada por defecto.
-
-## Perfiles de ejecución
-
-`TEST_PROFILE` selecciona la forma de la carga sin cambiar el flujo de usuario:
+`TEST_PROFILE` cambia la forma de la carga sin duplicar los flujos:
 
 | Perfil | Ejecutor | Propósito |
 | --- | --- | --- |
-| `functional` | 1 VU, 1 iteración | Validar solicitudes y datos |
-| `baseline` | VUs constantes | Obtener la referencia de carga baja |
-| `load` | Rampa y sostenimiento | Evaluar la carga objetivo |
-| `stress` | Tres escalones | Buscar degradación progresiva |
-| `spike` | Incremento rápido | Evaluar un pico repentino |
+| `functional` | 1 VU, 1 iteración | Verificar el flujo |
+| `baseline` | VUs constantes | Obtener referencia de baja carga |
+| `load` | Rampa, sostenimiento y descenso | Validar la carga objetivo |
+| `stress` | Tres escalones | Observar degradación y límite |
+| `spike` | Incremento rápido | Simular un pico |
 | `recovery` | Carga alta y reducción | Verificar recuperación |
 
-Los valores locales iniciales son conservadores: `baseline` usa 3 VUs durante
-2 minutos y los perfiles de rampa parten de `PROFILE_VUS=3`. Antes de ejecutar
-en Nimbus o IDCE deben definirse valores acordes con la capacidad esperada y
-la autorización del ambiente.
-
-Ejemplo de línea base local:
+### Baseline recomendado para comenzar
 
 ```bash
+RUN_ID="baseline-catalog-$(date +%Y%m%d-%H%M%S)"
+mkdir -p "results/$TEST_ENV_NAME/$RUN_ID"
+
 TEST_PROFILE=baseline \
-  "$K6_BIN" run scenarios/02-catalog.js
+PROFILE_VUS=3 \
+PROFILE_DURATION=2m \
+  "$K6_BIN" run \
+  --summary-export="results/$TEST_ENV_NAME/$RUN_ID/summary.json" \
+  scenarios/02-catalog.js
 ```
 
-Las variables `PROFILE_STAGE_DURATION`, `PROFILE_HOLD_DURATION` y
-`PROFILE_RECOVERY_DURATION` controlan las etapas. `PROFILE_BASE_VUS` define la
-carga normal usada por pico y recuperación. `PROFILE_P95_MS` permite sustituir
-el límite de latencia de un escenario sin editar código.
+Variables de control:
 
-Umbrales iniciales:
+- `PROFILE_VUS`: objetivo principal de VUs;
+- `PROFILE_DURATION`: duración de baseline;
+- `PROFILE_STAGE_DURATION`: duración de cada rampa;
+- `PROFILE_HOLD_DURATION`: tiempo sostenido;
+- `PROFILE_RECOVERY_DURATION`: periodo de observación posterior;
+- `PROFILE_BASE_VUS`: carga normal para spike y recovery;
+- `PROFILE_P95_MS`: sobrescribe el umbral p95 del escenario.
 
-- checks satisfactorios superiores al 99 %;
+Umbrales iniciales incluidos en el código:
+
+- checks superiores al 99 %;
 - solicitudes HTTP fallidas inferiores al 1 %;
+- `auth_session_valid=100%`;
 - p95 menor de 2 s para autenticación y catálogo;
 - p95 menor de 3 s para mapas;
 - p95 menor de 5 s para carga y análisis.
 
-Estos límites son criterios técnicos iniciales y deberán revisarse después de
-la línea base o sustituirse por requisitos formales de servicio.
+Son criterios iniciales, no un SLA. Primero obtén y revisa el baseline; luego
+acuerda objetivos y condiciones de detención antes de usar `load`, `stress`,
+`spike` o `recovery`. No ejecutes perfiles intensivos en producción sin
+autorización y monitoreo.
 
-`00-smoke.js` permanece deliberadamente fijo en una iteración. En catálogo,
-mapas y carga cada VU inicia sesión una vez y la reutiliza; `01-auth.js` inicia
-una sesión por iteración porque mide específicamente el proceso de login.
-El descubrimiento previo del catálogo usa únicamente recursos públicos,
-evitando seleccionar elementos privados de una cuenta administrativa que los
-usuarios del pool no podrían consultar.
+## Resultados y evidencia
 
-## Carga de archivos
+La salida de consola resume checks, latencia, errores, solicitudes, VUs y
+tráfico. `--summary-export` conserva un JSON reproducible, pero no genera por sí
+solo métricas internas del servidor ni un tablero histórico.
 
-`04-upload.js` dispone de dos modos:
+Por ejecución registra:
 
-- `analyze`: modo predeterminado. Carga, analiza, previsualiza y elimina el job
-  temporal. Genera nombres únicos por VU e iteración.
-- `full`: importa a GeoNode, verifica WMS/WFS y puede finalizar metadatos.
-  Crea un dataset persistente y debe ejecutarse de forma controlada.
+- commit del repositorio (`git rev-parse HEAD`);
+- versión y arquitectura de k6;
+- ambiente, escenario, perfil, VUs y duración;
+- fecha de inicio/fin y zona horaria;
+- `summary.json` y salida de consola;
+- CPU y RAM del generador;
+- CPU, RAM, disco, red, reinicios y logs de la plataforma;
+- observaciones o errores funcionales.
 
-Ejemplo seguro:
+Los resultados están excluidos de Git. Guárdalos en el repositorio de
+evidencias autorizado. Prometheus o Grafana no son obligatorios para ejecutar
+k6; intégralos solo si la instancia ya los utiliza o si se aprueba esa
+necesidad de monitoreo.
 
-```bash
-UPLOAD_MODE=analyze \
-  "$K6_BIN" run scenarios/04-upload.js
+## Ejecución en otra instancia
+
+No es necesario recrear los scripts. Para mover la suite a Linux, Nimbus o
+IDCE:
+
+1. Clona el mismo commit del repositorio.
+2. Instala un k6 compatible con la arquitectura.
+3. Crea `config/NUEVO_AMBIENTE.env` desde la plantilla.
+4. Configura las URL HTTPS, OIDC y rutas reales de esa instancia.
+5. Crea o recibe un pool exclusivo de usuarios.
+6. Inicializa sus perfiles Django/GeoNode.
+7. Ejecuta la puerta `functional` completa.
+8. Ejecuta un baseline pequeño y monitoreado.
+9. Solo después promueve a perfiles de mayor carga.
+
+Orden recomendado:
+
+```text
+local funcional → Linux controlado → Nimbus → IDCE
 ```
 
-No se debe usar `UPLOAD_MODE=full` como carga concurrente. Su publicación
-requiere que GeoNode/Celery pueda acceder a GeoServer REST y que el datastore
-PostGIS de GeoServer tenga credenciales válidas.
+En cada ambiente se repite `functional` y `baseline`; los escenarios se
+reutilizan sin editar. No copies secretos o usuarios entre instancias salvo que
+la administración lo autorice.
 
-El script rechaza automáticamente cualquier combinación de
-`UPLOAD_MODE=full` con un perfil distinto de `functional`.
+## Solución de problemas
 
-## Seguridad y reproducibilidad
+### `lookup ... no such host`
 
-- No versionar usuarios, contraseñas, tokens ni resultados con datos reales.
-- Utilizar cuentas exclusivas para pruebas y permisos mínimos suficientes.
-- No desactivar la validación TLS para resolver certificados incorrectos.
-- Revisar y retirar los datasets creados por ejecuciones `full`.
-- Ejecutar estrés formal desde un generador Linux separado del sistema bajo
-  prueba; la ejecución local se reserva para validación y línea base pequeña.
+El generador no resuelve el dominio. Verifica DNS o `/etc/hosts` y confirma con:
 
-En los perfiles de carga, cada VU deberá autenticarse una vez y reutilizar su
-sesión. La capacidad específica de inicio de sesión se medirá separadamente
-con `01-auth.js`, evitando que Keycloak distorsione todas las métricas de
-catálogo y mapas.
+```bash
+getent hosts NOMBRE_DEL_HOST
+```
+
+### `wrong version number` al usar HTTPS
+
+El puerto está sirviendo HTTP. Corrige `BASE_URL` para local. En servidores
+reales confirma que Nginx exponga HTTPS correctamente.
+
+### `AUTH_PROTECTED_PATH es obligatoria` u otra variable ausente
+
+El `.env` no fue cargado en la terminal actual:
+
+```bash
+set -a
+source config/AMBIENTE.env
+set +a
+```
+
+### `Command not found` al ejecutar `$K6_BIN`
+
+La variable no persiste al cerrar la terminal. Vuelve a exportarla y comprueba:
+
+```bash
+export K6_BIN="$(command -v k6)"
+"$K6_BIN" version
+```
+
+### Sesión OIDC vacía o sin access token
+
+Ejecuta primero `01-auth.js` con una sola cuenta. Revisa credenciales, acciones
+requeridas en Keycloak, `OIDC_ISSUER`, cliente y callback. No continúes con
+carga hasta obtener `auth_session_valid=100%`.
+
+### El mapa existe, pero WMS/WMTS falla
+
+Que una capa aparezca en la API no garantiza que GeoServer la publique.
+Comprueba GetCapabilities y que el nombre anunciado coincida con la capa del
+mapa. Una respuesta HTTP 200 que contiene una excepción OGC es un fallo.
+
+### `thresholds ... have been crossed`
+
+La ejecución terminó, pero incumplió uno o más criterios. Revisa checks,
+`http_req_failed`, p95 y recursos del generador/servidor. No aumentes los
+umbrales solo para hacer pasar la prueba; documenta y analiza el resultado.
+
+## Documentación complementaria
+
+- [Diseño detallado de escenarios](docs/SCENARIOS.md)
+- [Resumen de reproducción por ambiente](docs/REPRODUCIBILITY.md)
+- [Configuración y archivos privados](config/README.md)
+- [Política de seguridad](SECURITY.md)
+- [Guía de contribución](CONTRIBUTING.md)
