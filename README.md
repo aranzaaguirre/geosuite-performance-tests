@@ -1,37 +1,59 @@
+<div align="center">
+
 # GeoSuite Performance Tests
 
-Suite reproducible de pruebas HTTP y de servicios geoespaciales para GeoSuite,
-implementada con Grafana k6. Incluye autenticación OIDC, catálogo, mapas,
-GeoServer y carga de archivos. Está diseñada para ejecutar los mismos flujos en
-local, Linux, Nimbus e IDCE cambiando únicamente la configuración privada de
-cada ambiente.
+**Pruebas reproducibles de rendimiento HTTP, OIDC y servicios geoespaciales**
 
-Los scripts miden solicitudes HTTP/API; no abren un navegador ni miden el
-renderizado de Nuxt, DOM, JavaScript del cliente o Web Vitals. Tampoco sustituyen
-el monitoreo interno de contenedores, base de datos, CPU, memoria, disco y red.
+![k6](https://img.shields.io/badge/k6-v2.3.0-7D64FF?logo=k6&logoColor=white)
+![Platform](https://img.shields.io/badge/platform-Linux-FCC624?logo=linux&logoColor=black)
+![Scenarios](https://img.shields.io/badge/scenarios-5-1F6FEB)
+![Repository](https://img.shields.io/badge/repository-public-2DA44E)
 
-## Contenido
+</div>
 
-- [Escenarios incluidos](#escenarios-incluidos)
-- [Requisitos](#requisitos)
-- [Instalación desde cero](#instalación-desde-cero)
-- [Configuración de un ambiente](#configuración-de-un-ambiente)
-- [Preparación de usuarios](#preparación-de-usuarios)
-- [Validación funcional](#validación-funcional)
-- [Perfiles de carga](#perfiles-de-carga)
-- [Resultados y evidencia](#resultados-y-evidencia)
-- [Ejecución en otra instancia](#ejecución-en-otra-instancia)
-- [Solución de problemas](#solución-de-problemas)
+---
+
+Suite de Grafana k6 para validar autenticación, catálogo, mapas, GeoServer y
+carga de archivos de GeoSuite. Los mismos flujos se reutilizan en local, Linux,
+Nimbus e IDCE mediante una configuración privada por ambiente.
+
+> [!NOTE]
+> Los scripts miden solicitudes HTTP/API. No abren un navegador ni miden el
+> renderizado de Nuxt, DOM, JavaScript del cliente o Web Vitals. Tampoco
+> sustituyen el monitoreo interno de contenedores, base de datos, CPU, memoria,
+> disco y red.
+
+## Navegación
+
+| Preparar | Ejecutar | Consultar |
+| --- | --- | --- |
+| [Requisitos](#requisitos) | [Validación funcional](#validación-funcional) | [Escenarios](#escenarios-incluidos) |
+| [Instalación](#instalación-desde-cero) | [Perfiles de carga](#perfiles-de-carga) | [Resultados](#resultados-y-evidencia) |
+| [Configuración](#configuración-de-un-ambiente) | [Otra instancia](#ejecución-en-otra-instancia) | [Problemas frecuentes](#solución-de-problemas) |
+| [Usuarios](#preparación-de-usuarios) |  | [Documentación](#documentación-complementaria) |
+
+### Flujo de trabajo
+
+```mermaid
+flowchart LR
+    A[Clonar] --> B[Configurar ambiente]
+    B --> C[Preparar usuarios]
+    C --> D[Inicializar perfiles]
+    D --> E[Validación funcional]
+    E --> F[Baseline]
+    F --> G[Carga autorizada]
+    G --> H[Resultados y evidencia]
+```
 
 ## Escenarios incluidos
 
 | Archivo | Flujo | Autenticación | Efecto |
 | --- | --- | --- | --- |
-| `00-smoke.js` | Disponibilidad de Nginx y API de catálogo | No | Solo lectura |
-| `01-auth.js` | NextAuth, Keycloak OIDC y perfil Django/GeoNode | Sí | Crea una sesión |
-| `02-catalog.js` | Listado, clasificación, filtros, búsqueda y detalle | Configurable | Solo lectura |
-| `03-maps.js` | Visor, mapas, capas, WMTS/MVT, WMS y WFS | Configurable | Solo lectura |
-| `04-upload.js` | Cuota, upload, análisis, preview e importación | Sí | Depende del modo |
+| [`00-smoke.js`](scenarios/00-smoke.js) | Disponibilidad de Nginx y API de catálogo | No | 🟢 Lectura |
+| [`01-auth.js`](scenarios/01-auth.js) | NextAuth, Keycloak OIDC y perfil Django/GeoNode | Sí | 🔵 Sesión |
+| [`02-catalog.js`](scenarios/02-catalog.js) | Listado, clasificación, filtros, búsqueda y detalle | Configurable | 🟢 Lectura |
+| [`03-maps.js`](scenarios/03-maps.js) | Visor, mapas, capas, WMTS/MVT, WMS y WFS | Configurable | 🟢 Lectura |
+| [`04-upload.js`](scenarios/04-upload.js) | Cuota, upload, análisis, preview e importación | Sí | 🟠 Condicional |
 
 Las rutas `sigic-resources` y `sigic-maps` que aparecen en el código son
 identificadores técnicos de la API instalada. Se conservan para mantener
@@ -43,13 +65,14 @@ El detalle de las solicitudes y sus precondiciones está en
 ## Estructura del repositorio
 
 ```text
-config/      Plantilla de ambiente y ejemplo del pool de usuarios
-data/        Archivos sintéticos, pequeños y seguros para pruebas
-docs/        Diseño de escenarios y reglas de reproducción
-lib/         Autenticación, asignación de sesiones y perfiles de carga
-results/     Salidas locales de k6; no se versionan
-scenarios/   Flujos funcionales de k6
-scripts/     Aprovisionamiento e inicialización de usuarios
+geosuite-performance-tests/
+├── config/      Plantilla de ambiente y ejemplo del pool de usuarios
+├── data/        Archivos sintéticos, pequeños y seguros para pruebas
+├── docs/        Diseño de escenarios y reglas de reproducción
+├── lib/         Autenticación, sesiones y perfiles de carga
+├── results/     Salidas locales de k6; no se versionan
+├── scenarios/   Flujos funcionales de k6
+└── scripts/     Aprovisionamiento e inicialización de usuarios
 ```
 
 No se versionan el binario de k6, archivos `*.env`, pools de usuarios ni
@@ -69,6 +92,10 @@ resultados. Cada operador debe generarlos en su propia máquina.
 Docker Desktop no es necesario: k6 se ejecuta como CLI nativo. Para pruebas de
 carga formales conviene usar un equipo Linux separado del servidor evaluado,
 de modo que el generador no consuma sus recursos.
+
+> [!TIP]
+> Usa el equipo local para validar los flujos y obtener una línea base pequeña.
+> Reserva un generador Linux independiente para las ejecuciones formales.
 
 ### Plataforma objetivo
 
@@ -168,6 +195,10 @@ nano config/AMBIENTE.env
 
 Nunca edites `local.env.example` con secretos. El archivo nuevo está excluido
 por `.gitignore`.
+
+> [!IMPORTANT]
+> Cada ambiente debe conservar su propio `.env`, pool de usuarios y carpeta de
+> resultados. No copies valores locales a Nimbus o IDCE sin verificarlos.
 
 ### 2. Completar las variables
 
@@ -393,6 +424,11 @@ dataset en GeoNode/PostGIS, comprueba WMS/WFS y puede finalizar metadatos; por
 lo tanto, crea datos persistentes. El código solo permite combinarlo con el
 perfil `functional`:
 
+> [!CAUTION]
+> `UPLOAD_MODE=full` modifica la plataforma. Ejecútalo únicamente con permiso,
+> una sola iteración y un procedimiento definido para revisar o retirar el
+> dataset creado.
+
 ```bash
 TEST_PROFILE=functional \
 UPLOAD_MODE=full \
@@ -454,6 +490,11 @@ acuerda objetivos y condiciones de detención antes de usar `load`, `stress`,
 `spike` o `recovery`. No ejecutes perfiles intensivos en producción sin
 autorización y monitoreo.
 
+> [!WARNING]
+> Una prueba de estrés puede degradar o interrumpir el servicio. Confirma la
+> ventana, los responsables, el monitoreo y las condiciones de aborto antes de
+> comenzar.
+
 ## Resultados y evidencia
 
 La salida de consola resume checks, latencia, errores, solicitudes, VUs y
@@ -503,7 +544,10 @@ la administración lo autorice.
 
 ## Solución de problemas
 
-### `lookup ... no such host`
+<details>
+<summary><strong>DNS: <code>lookup ... no such host</code></strong></summary>
+
+<br>
 
 El generador no resuelve el dominio. Verifica DNS o `/etc/hosts` y confirma con:
 
@@ -511,12 +555,22 @@ El generador no resuelve el dominio. Verifica DNS o `/etc/hosts` y confirma con:
 getent hosts NOMBRE_DEL_HOST
 ```
 
-### `wrong version number` al usar HTTPS
+</details>
+
+<details>
+<summary><strong>TLS: <code>wrong version number</code> al usar HTTPS</strong></summary>
+
+<br>
 
 El puerto está sirviendo HTTP. Corrige `BASE_URL` para local. En servidores
 reales confirma que Nginx exponga HTTPS correctamente.
 
-### `AUTH_PROTECTED_PATH es obligatoria` u otra variable ausente
+</details>
+
+<details>
+<summary><strong>Configuración: variable obligatoria ausente</strong></summary>
+
+<br>
 
 El `.env` no fue cargado en la terminal actual:
 
@@ -526,7 +580,12 @@ source config/AMBIENTE.env
 set +a
 ```
 
-### `Command not found` al ejecutar `$K6_BIN`
+</details>
+
+<details>
+<summary><strong>k6: <code>Command not found</code></strong></summary>
+
+<br>
 
 La variable no persiste al cerrar la terminal. Vuelve a exportarla y comprueba:
 
@@ -535,23 +594,40 @@ export K6_BIN="$(command -v k6)"
 "$K6_BIN" version
 ```
 
-### Sesión OIDC vacía o sin access token
+</details>
+
+<details>
+<summary><strong>OIDC: sesión vacía o sin access token</strong></summary>
+
+<br>
 
 Ejecuta primero `01-auth.js` con una sola cuenta. Revisa credenciales, acciones
 requeridas en Keycloak, `OIDC_ISSUER`, cliente y callback. No continúes con
 carga hasta obtener `auth_session_valid=100%`.
 
-### El mapa existe, pero WMS/WMTS falla
+</details>
+
+<details>
+<summary><strong>GeoServer: el mapa existe, pero WMS/WMTS falla</strong></summary>
+
+<br>
 
 Que una capa aparezca en la API no garantiza que GeoServer la publique.
 Comprueba GetCapabilities y que el nombre anunciado coincida con la capa del
 mapa. Una respuesta HTTP 200 que contiene una excepción OGC es un fallo.
 
-### `thresholds ... have been crossed`
+</details>
+
+<details>
+<summary><strong>k6: <code>thresholds ... have been crossed</code></strong></summary>
+
+<br>
 
 La ejecución terminó, pero incumplió uno o más criterios. Revisa checks,
 `http_req_failed`, p95 y recursos del generador/servidor. No aumentes los
 umbrales solo para hacer pasar la prueba; documenta y analiza el resultado.
+
+</details>
 
 ## Documentación complementaria
 
