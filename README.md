@@ -27,10 +27,10 @@ Nimbus e IDCE mediante una configuración privada por ambiente.
 
 | Preparar | Ejecutar | Consultar |
 | --- | --- | --- |
-| [Requisitos](#requisitos) | [Validación funcional](#validación-funcional) | [Escenarios](#escenarios-incluidos) |
+| [Requisitos](#requisitos) | [Validación funcional](#validación-funcional) | [Escenarios](#escenarios) |
 | [Instalación](#instalación-desde-cero) | [Perfiles de carga](#perfiles-de-carga) | [Resultados](#resultados-y-evidencia) |
 | [Configuración](#configuración-de-un-ambiente) | [Otra instancia](#ejecución-en-otra-instancia) | [Problemas frecuentes](#solución-de-problemas) |
-| [Usuarios](#preparación-de-usuarios) |  | [Documentación](#documentación-complementaria) |
+| [Usuarios](#preparación-de-usuarios) |  | [Referencias](#referencias) |
 
 ### Flujo de trabajo
 
@@ -45,9 +45,9 @@ flowchart LR
     G --> H[Resultados y evidencia]
 ```
 
-## Escenarios incluidos
+## Escenarios
 
-### Modelo conceptual
+### Cómo funcionan las pruebas
 
 Un **escenario** representa un recorrido de usuario y define qué operaciones se
 ejecutan y en qué orden. Un **perfil de carga** determina cuántos usuarios
@@ -65,7 +65,7 @@ flowchart LR
     P[Perfil de carga] -. VUs y duración .-> U
 ```
 
-| Concepto | Significado en esta suite |
+| Elemento | Función dentro de la prueba |
 | --- | --- |
 | **VU** | Usuario virtual concurrente. En flujos autenticados recibe una cuenta exclusiva. |
 | **Iteración** | Una ejecución completa del recorrido definido por el escenario. |
@@ -80,7 +80,7 @@ flowchart LR
 
 ### Mapa de cobertura
 
-| Archivo | Flujo | Autenticación | Efecto |
+| Archivo | Flujo | Autenticación | Impacto |
 | --- | --- | --- | --- |
 | [`00-smoke.js`](scenarios/00-smoke.js) | Disponibilidad de Nginx y API de catálogo | No | 🟢 Lectura |
 | [`01-auth.js`](scenarios/01-auth.js) | NextAuth, Keycloak OIDC y perfil Django/GeoNode | Sí | 🔵 Sesión |
@@ -88,7 +88,7 @@ flowchart LR
 | [`03-maps.js`](scenarios/03-maps.js) | Visor, mapas, capas, WMTS/MVT, WMS y WFS | Configurable | 🟢 Lectura |
 | [`04-upload.js`](scenarios/04-upload.js) | Cuota, upload, análisis, preview e importación | Sí | 🟠 Condicional |
 
-### Qué representa cada escenario
+### Comportamiento de cada escenario
 
 #### `00-smoke.js` — disponibilidad mínima
 
@@ -97,9 +97,9 @@ solicitud que el generador resuelve el dominio y que Nginx y la API responden
 con JSON válido. Si falla, los escenarios posteriores no producirían datos de
 rendimiento útiles porque el problema sería de disponibilidad o conectividad.
 
-**Presiona principalmente:** Nginx y Django/GeoNode.
+**Componentes:** Nginx y Django/GeoNode.
 
-**Criterio conceptual:** la plataforma está alcanzable y entrega una respuesta
+**Resultado esperado:** la plataforma está alcanzable y entrega una respuesta
 funcional básica.
 
 #### `01-auth.js` — inicio de sesión completo
@@ -109,9 +109,9 @@ redirecciones, Authorization Code con PKCE, formulario de Keycloak, callback de
 NextAuth, creación de sesión y consulta del perfil protegido. Cada iteración
 crea un login nuevo porque el objetivo es medir específicamente autenticación.
 
-**Presiona principalmente:** Nginx, NextAuth, Keycloak y Django/GeoNode.
+**Componentes:** Nginx, NextAuth, Keycloak y Django/GeoNode.
 
-**Criterio conceptual:** la identidad se transforma en una sesión válida y en
+**Resultado esperado:** la identidad se transforma en una sesión válida y en
 un usuario reconocido por la aplicación.
 
 #### `02-catalog.js` — consulta y descubrimiento
@@ -121,10 +121,10 @@ por texto y consulta detalles. Descubre automáticamente recursos visibles para
 evitar IDs fijos y poder ejecutarse en instancias con contenidos diferentes.
 En carga autenticada, cada VU inicia sesión una vez y la reutiliza.
 
-**Presiona principalmente:** Nginx, Nuxt, API Django/GeoNode y consultas de
+**Componentes:** Nginx, Nuxt, API Django/GeoNode y consultas de
 PostgreSQL.
 
-**Criterio conceptual:** el catálogo localiza recursos coherentes y mantiene
+**Resultado esperado:** el catálogo localiza recursos coherentes y mantiene
 tiempos aceptables al aumentar usuarios concurrentes.
 
 #### `03-maps.js` — visualización geoespacial
@@ -134,10 +134,10 @@ los metadatos del mapa y después los servicios que realmente entregan la
 representación geográfica: WMTS/MVT o el fallback WMS, además de WFS cuando
 corresponde. Distingue una imagen válida de una excepción OGC con HTTP 200.
 
-**Presiona principalmente:** Nginx, API de mapas, GeoNode, GeoServer y
+**Componentes:** Nginx, API de mapas, GeoNode, GeoServer y
 PostGIS.
 
-**Criterio conceptual:** una capa registrada también está publicada y puede
+**Resultado esperado:** una capa registrada también está publicada y puede
 ser consumida por el visor.
 
 #### `04-upload.js` — ingreso y procesamiento de datos
@@ -147,10 +147,10 @@ asíncrono. El modo `analyze` mide recepción, análisis y preview sin conservar
 dataset; el modo `full` continúa con importación y publicación WMS/WFS. Por esa
 diferencia, solo `analyze` es apropiado para concurrencia controlada.
 
-**Presiona principalmente:** Nginx, Django/GeoNode, almacenamiento temporal,
+**Componentes:** Nginx, Django/GeoNode, almacenamiento temporal,
 Celery, PostgreSQL/PostGIS y, en modo `full`, GeoServer.
 
-**Criterio conceptual:** el archivo atraviesa correctamente cada estado del
+**Resultado esperado:** el archivo atraviesa correctamente cada estado del
 pipeline y produce el resultado esperado.
 
 ### Límites de interpretación
@@ -168,8 +168,8 @@ Las rutas `sigic-resources` y `sigic-maps` que aparecen en el código son
 identificadores técnicos de la API instalada. Se conservan para mantener
 compatibilidad entre las instancias de GeoSuite.
 
-El detalle de las solicitudes y sus precondiciones está en
-[`docs/SCENARIOS.md`](docs/SCENARIOS.md).
+Los recorridos, endpoints, condiciones y validaciones están reunidos en
+[**Escenarios**](docs/SCENARIOS.md).
 
 ## Estructura del repositorio
 
@@ -177,7 +177,7 @@ El detalle de las solicitudes y sus precondiciones está en
 geosuite-performance-tests/
 ├── config/      Plantilla de ambiente y ejemplo del pool de usuarios
 ├── data/        Archivos sintéticos, pequeños y seguros para pruebas
-├── docs/        Diseño de escenarios y reglas de reproducción
+├── docs/        Escenarios y reglas de reproducción
 ├── lib/         Autenticación, sesiones y perfiles de carga
 ├── results/     Salidas locales de k6; no se versionan
 ├── scenarios/   Flujos funcionales de k6
@@ -738,9 +738,9 @@ umbrales solo para hacer pasar la prueba; documenta y analiza el resultado.
 
 </details>
 
-## Documentación complementaria
+## Referencias
 
-- [Diseño detallado de escenarios](docs/SCENARIOS.md)
+- [Escenarios](docs/SCENARIOS.md)
 - [Resumen de reproducción por ambiente](docs/REPRODUCIBILITY.md)
 - [Configuración y archivos privados](config/README.md)
 - [Política de seguridad](SECURITY.md)
