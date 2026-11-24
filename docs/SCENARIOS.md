@@ -4,8 +4,8 @@ Los escenarios modelan solicitudes HTTP reales de GeoSuite. No son pruebas de
 navegador: validan protocolos, APIs y servicios OGC sin medir renderizado del
 DOM, JavaScript del cliente o Web Vitals.
 
-Las rutas de recursos y mapas se reciben mediante `RESOURCES_API_PATH` y
-`MAPS_API_PATH`, por lo que pueden adaptarse a cada instalación.
+Las rutas `sigic-resources` y `sigic-maps` se conservan únicamente como
+identificadores técnicos heredados de la API actualmente desplegada.
 
 ## Convenciones comunes
 
@@ -24,7 +24,7 @@ prueba más costosa.
 
 **Flujo:**
 
-1. `GET RESOURCES_API_PATH`.
+1. `GET /api/v2/sigic-resources/`.
 2. Validación de HTTP 200.
 3. Validación de cuerpo JSON no vacío.
 
@@ -62,7 +62,7 @@ Django/GeoNode.
 1. Descubrimiento público de recursos visibles.
 2. Clasificación automática por raster, vector, tabla, PDF, texto o remoto.
 3. Apertura de `/admin/catalogo` o `/app/catalogo`.
-4. Filtro por perfil mediante `RESOURCES_API_PATH`.
+4. Filtro por perfil mediante `/api/v2/sigic-resources/`.
 5. Búsqueda por título y resumen.
 6. Consulta de `/api/v2/datasets/{id}/` o `/api/v2/documents/{id}/`.
 
@@ -79,7 +79,7 @@ Django/GeoNode.
 
 **Flujo:**
 
-1. Listado y detalle mediante `MAPS_API_PATH`.
+1. Listado y detalle mediante `/api/v2/sigic-maps/`.
 2. Apertura del visor Nuxt.
 3. Consulta del dataset asociado.
 4. Lectura de GetCapabilities.

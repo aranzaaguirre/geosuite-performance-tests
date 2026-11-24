@@ -126,8 +126,6 @@ BASE_URL=https://dominio-real-de-geosuite
 OIDC_ISSUER=https://dominio-real-de-geosuite/iam/realms/REALM
 KEYCLOAK_CLIENT_ID=CLIENTE_OIDC_REAL
 AUTH_USERS_FILE=../config/users.AMBIENTE.json
-RESOURCES_API_PATH=/api/v2/RUTA_REAL_DE_RECURSOS/
-MAPS_API_PATH=/api/v2/RUTA_REAL_DE_MAPAS/
 ```
 
 También deben revisarse las rutas `AUTH_*`, los prefijos, la entrada de
@@ -151,7 +149,7 @@ curl -fsSI "$BASE_URL"
 
 ```bash
 curl -fsS \
-  "$BASE_URL$RESOURCES_API_PATH?page=1&page_size=1" \
+  "$BASE_URL/api/v2/sigic-resources/?page=1&page_size=1" \
   | python3 -m json.tool \
   | head -40
 ```
@@ -316,9 +314,11 @@ En local se usa la URL definida por la instalación. Nimbus e IDCE deben usar
 su URL HTTPS real. Las credenciales administrativas de GeoServer no pertenecen
 a estos archivos: son secretos internos de la infraestructura.
 
-Las rutas de recursos y mapas se configuran mediante `RESOURCES_API_PATH` y
-`MAPS_API_PATH`. Esto permite conservar los contratos HTTP reales de cada
-instalación sin acoplar el repositorio a nombres heredados.
+> **Compatibilidad de API:** algunas rutas del backend conservan los nombres
+> técnicos heredados `sigic-resources` y `sigic-maps`. Son contratos HTTP de la
+> plataforma y no representan la identidad pública de este repositorio. No se
+> renombran porque hacerlo rompería las solicitudes contra las instalaciones
+> existentes.
 
 Para cargar una configuración en Bash:
 

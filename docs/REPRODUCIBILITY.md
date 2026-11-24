@@ -21,9 +21,8 @@ nano config/linux.env
 ```
 
 Configura como mínimo `TEST_ENV_NAME`, `BASE_URL`, `OIDC_ISSUER`,
-`KEYCLOAK_CLIENT_ID`, `RESOURCES_API_PATH`, `MAPS_API_PATH` y
-`AUTH_USERS_FILE`. En Nimbus e IDCE, `BASE_URL` y `OIDC_ISSUER` deben usar el
-dominio HTTPS real.
+`KEYCLOAK_CLIENT_ID` y `AUTH_USERS_FILE`. En Nimbus e IDCE, `BASE_URL` y
+`OIDC_ISSUER` deben usar el dominio HTTPS real.
 
 ## 3. Pool de usuarios
 
