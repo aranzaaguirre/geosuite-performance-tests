@@ -47,6 +47,39 @@ flowchart LR
 
 ## Escenarios incluidos
 
+### Modelo conceptual
+
+Un **escenario** representa un recorrido de usuario y define qué operaciones se
+ejecutan y en qué orden. Un **perfil de carga** determina cuántos usuarios
+virtuales reproducen ese recorrido, durante cuánto tiempo y con qué patrón de
+concurrencia. Separar ambos conceptos permite utilizar el mismo flujo primero
+como validación funcional y después como baseline, carga, estrés o pico.
+
+```mermaid
+flowchart LR
+    U[Usuario virtual] --> S[Escenario]
+    S --> R[Solicitudes HTTP]
+    R --> C[Componentes GeoSuite]
+    C --> M[Métricas y checks]
+
+    P[Perfil de carga] -. VUs y duración .-> U
+```
+
+| Concepto | Significado en esta suite |
+| --- | --- |
+| **VU** | Usuario virtual concurrente. En flujos autenticados recibe una cuenta exclusiva. |
+| **Iteración** | Una ejecución completa del recorrido definido por el escenario. |
+| **Sesión** | Autenticación OIDC reutilizada por el mismo VU, excepto en la prueba específica de login. |
+| **Check** | Validación funcional de estado, formato o contenido de una respuesta. |
+| **Threshold** | Criterio global de aceptación para errores, checks, sesión o latencia. |
+| **Perfil** | Patrón temporal de concurrencia: functional, baseline, load, stress, spike o recovery. |
+
+> [!IMPORTANT]
+> Un HTTP 200 no basta para aprobar. Los checks también comprueban que el JSON,
+> la sesión, la imagen o la respuesta OGC correspondan al resultado esperado.
+
+### Mapa de cobertura
+
 | Archivo | Flujo | Autenticación | Efecto |
 | --- | --- | --- | --- |
 | [`00-smoke.js`](scenarios/00-smoke.js) | Disponibilidad de Nginx y API de catálogo | No | 🟢 Lectura |
@@ -54,6 +87,82 @@ flowchart LR
 | [`02-catalog.js`](scenarios/02-catalog.js) | Listado, clasificación, filtros, búsqueda y detalle | Configurable | 🟢 Lectura |
 | [`03-maps.js`](scenarios/03-maps.js) | Visor, mapas, capas, WMTS/MVT, WMS y WFS | Configurable | 🟢 Lectura |
 | [`04-upload.js`](scenarios/04-upload.js) | Cuota, upload, análisis, preview e importación | Sí | 🟠 Condicional |
+
+### Qué representa cada escenario
+
+#### `00-smoke.js` — disponibilidad mínima
+
+Es una **prueba de humo**, no una prueba de capacidad. Confirma con una sola
+solicitud que el generador resuelve el dominio y que Nginx y la API responden
+con JSON válido. Si falla, los escenarios posteriores no producirían datos de
+rendimiento útiles porque el problema sería de disponibilidad o conectividad.
+
+**Presiona principalmente:** Nginx y Django/GeoNode.
+
+**Criterio conceptual:** la plataforma está alcanzable y entrega una respuesta
+funcional básica.
+
+#### `01-auth.js` — inicio de sesión completo
+
+Representa a una persona que entra al módulo administrativo. Recorre CSRF,
+redirecciones, Authorization Code con PKCE, formulario de Keycloak, callback de
+NextAuth, creación de sesión y consulta del perfil protegido. Cada iteración
+crea un login nuevo porque el objetivo es medir específicamente autenticación.
+
+**Presiona principalmente:** Nginx, NextAuth, Keycloak y Django/GeoNode.
+
+**Criterio conceptual:** la identidad se transforma en una sesión válida y en
+un usuario reconocido por la aplicación.
+
+#### `02-catalog.js` — consulta y descubrimiento
+
+Representa a un usuario que abre el catálogo, filtra tipos de contenido, busca
+por texto y consulta detalles. Descubre automáticamente recursos visibles para
+evitar IDs fijos y poder ejecutarse en instancias con contenidos diferentes.
+En carga autenticada, cada VU inicia sesión una vez y la reutiliza.
+
+**Presiona principalmente:** Nginx, Nuxt, API Django/GeoNode y consultas de
+PostgreSQL.
+
+**Criterio conceptual:** el catálogo localiza recursos coherentes y mantiene
+tiempos aceptables al aumentar usuarios concurrentes.
+
+#### `03-maps.js` — visualización geoespacial
+
+Representa la apertura de un mapa y la consulta de sus capas. Valida primero
+los metadatos del mapa y después los servicios que realmente entregan la
+representación geográfica: WMTS/MVT o el fallback WMS, además de WFS cuando
+corresponde. Distingue una imagen válida de una excepción OGC con HTTP 200.
+
+**Presiona principalmente:** Nginx, API de mapas, GeoNode, GeoServer y
+PostGIS.
+
+**Criterio conceptual:** una capa registrada también está publicada y puede
+ser consumida por el visor.
+
+#### `04-upload.js` — ingreso y procesamiento de datos
+
+Representa a un usuario que carga un archivo y espera su procesamiento
+asíncrono. El modo `analyze` mide recepción, análisis y preview sin conservar un
+dataset; el modo `full` continúa con importación y publicación WMS/WFS. Por esa
+diferencia, solo `analyze` es apropiado para concurrencia controlada.
+
+**Presiona principalmente:** Nginx, Django/GeoNode, almacenamiento temporal,
+Celery, PostgreSQL/PostGIS y, en modo `full`, GeoServer.
+
+**Criterio conceptual:** el archivo atraviesa correctamente cada estado del
+pipeline y produce el resultado esperado.
+
+### Límites de interpretación
+
+- Los escenarios reproducen tráfico de protocolo, no interacción gráfica de
+  un navegador.
+- La latencia de k6 incluye red y tiempo de respuesta HTTP, pero no renderizado
+  del cliente.
+- Los resultados indican lo que observa el usuario; la causa interna de una
+  degradación requiere correlacionar métricas y logs de infraestructura.
+- Un perfil intenso no amplía el flujo: aumenta la concurrencia sobre las
+  mismas operaciones validadas funcionalmente.
 
 Las rutas `sigic-resources` y `sigic-maps` que aparecen en el código son
 identificadores técnicos de la API instalada. Se conservan para mantener
