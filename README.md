@@ -14,8 +14,7 @@
 ---
 
 Suite de Grafana k6 para validar autenticación, catálogo, mapas, GeoServer y
-carga de archivos de GeoSuite. Los mismos flujos se reutilizan en local, Linux,
-Nimbus e IDCE mediante una configuración privada por ambiente.
+carga de archivos de GeoSuite. Los mismos flujos se reutilizan mediante una configuración privada por ambiente.
 
 > [!NOTE]
 > Los scripts miden solicitudes HTTP/API. No abren un navegador ni miden el
