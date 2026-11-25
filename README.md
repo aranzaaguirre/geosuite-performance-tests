@@ -232,25 +232,53 @@ git rev-parse HEAD
 
 Esto permite relacionar cada resultado con una versión exacta de los scripts.
 
-### 2. Preparar k6
+### 2. Instalar k6
 
-Instala k6 para la arquitectura del generador siguiendo el mecanismo aprobado
-para ese servidor. Comprueba primero si ya está disponible:
+La suite fue construida y validada con **Grafana k6 v2.3.0**. Para mantener la
+comparabilidad entre ambientes se recomienda utilizar esa misma versión en
+local, Linux, Nimbus e IDCE.
+
+> [!NOTE]
+> Se utiliza k6 CLI. No es necesario instalar Grafana, una aplicación de
+> escritorio ni Docker Desktop para ejecutar los escenarios.
+
+#### 2.1 Instalar dependencias del sistema
+
+En Ubuntu, Debian o WSL:
+
+```bash
+sudo apt update
+sudo apt install -y \
+  ca-certificates \
+  coreutils \
+  curl \
+  git \
+  openssl \
+  python3 \
+  tar
+```
+
+Estas herramientas permiten clonar el repositorio, descargar y verificar k6,
+cargar la configuración y ejecutar los scripts auxiliares.
+
+#### 2.2 Identificar la arquitectura
 
 ```bash
 uname -m
-k6 version
 ```
 
-Si está instalado globalmente:
+Usa la equivalencia correspondiente:
 
-```bash
-export K6_BIN="$(command -v k6)"
-```
+| Resultado de `uname -m` | Archivo de k6 | Valor de `K6_ARCH` |
+| --- | --- | --- |
+| `x86_64` | Linux AMD64 | `amd64` |
+| `aarch64` o `arm64` | Linux ARM64 | `arm64` |
 
-También se puede descargar el binario validado dentro de `.tools/`, directorio
-ignorado por Git. En Linux x86_64 utiliza `amd64`; en ARM64 cambia el valor de
-`K6_ARCH` a `arm64`:
+El entorno local utilizado para preparar esta suite es Linux AMD64.
+
+#### 2.3 Descargar la versión validada
+
+Desde la raíz de `geosuite-performance-tests`:
 
 ```bash
 K6_VERSION=v2.3.0
@@ -265,30 +293,86 @@ curl -fL \
   "https://github.com/grafana/k6/releases/download/${K6_VERSION}/k6-${K6_VERSION}-checksums.txt"
 ```
 
-Verifica la descarga antes de extraerla:
+En ARM64 cambia únicamente:
+
+```bash
+K6_ARCH=arm64
+```
+
+#### 2.4 Comprobar la integridad
+
+No extraigas el archivo antes de validar su checksum:
 
 ```bash
 cd /tmp
+
 grep "k6-${K6_VERSION}-linux-${K6_ARCH}.tar.gz" \
   "k6-${K6_VERSION}-checksums.txt" \
   | sha256sum -c -
+
 cd -
 ```
 
-El resultado debe terminar en `OK`. Después:
+El resultado esperado es:
+
+```text
+k6-v2.3.0-linux-amd64.tar.gz: OK
+```
+
+Para ARM64, el nombre mostrado terminará en `linux-arm64.tar.gz: OK`. Si la
+comprobación falla, elimina la descarga y no continúes.
+
+#### 2.5 Extraer k6 dentro del repositorio
 
 ```bash
 mkdir -p .tools
+
 tar -xzf "/tmp/k6-${K6_VERSION}-linux-${K6_ARCH}.tar.gz" \
   -C .tools
 
-export K6_BIN="$PWD/.tools/k6-v2.3.0-linux-amd64/k6"
+find .tools -maxdepth 2 -type f -name k6 -ls
+```
+
+El binario queda dentro de `.tools/`, que está excluido por `.gitignore`. Por
+eso no se publica en GitHub y debe instalarse después de cada clonación en una
+máquina nueva.
+
+#### 2.6 Definir y verificar `K6_BIN`
+
+```bash
+export K6_BIN="${PWD}/.tools/k6-${K6_VERSION}-linux-${K6_ARCH}/k6"
+
+test -x "$K6_BIN"
 "$K6_BIN" version
 ```
 
-Si elegiste `arm64`, ajusta también la ruta de `K6_BIN`. No copies un binario
-`amd64` a un servidor `arm64`. Si `k6 version` no funciona, detente antes de
-configurar o ejecutar pruebas.
+El resultado debe comenzar con:
+
+```text
+k6 v2.3.0
+```
+
+La variable `K6_BIN` solo existe en la terminal actual. Después de cerrar o
+abrir una terminal, vuelve a definirla con la ruta ya instalada:
+
+```bash
+export K6_BIN="$PWD/.tools/k6-v2.3.0-linux-amd64/k6"
+```
+
+En ARM64 sustituye `amd64` por `arm64`.
+
+#### Instalación global existente
+
+Si el servidor ya tiene la versión aprobada instalada globalmente, no es
+necesario descargarla de nuevo:
+
+```bash
+export K6_BIN="$(command -v k6)"
+"$K6_BIN" version
+```
+
+No continúes si el comando no encuentra k6, la arquitectura es incorrecta o la
+versión no corresponde con la acordada para la comparación.
 
 ## Configuración de un ambiente
 
